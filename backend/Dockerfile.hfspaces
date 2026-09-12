@@ -1,0 +1,171 @@
+# ==============================================================================
+# Dockerfile.hfspaces — CanopyLens backend for HuggingFace Spaces (Docker SDK)
+# ==============================================================================
+#
+# This is a FALLBACK Dockerfile in case Modal setup is unavailable.
+# Deploy it to a HuggingFace Space using the "Docker" SDK option.
+#
+# Key differences from the Modal deployment:
+#   • CPU inference only (HF Spaces free-tier has no GPU)
+#     DeepForest + SAM2 will still run; expect ~5–15 min per job on CPU.
+#   • In-memory job store — state is lost on container restart (acceptable for demos)
+#   • No persistent volume — uploads are ephemeral
+#   • CORS_ORIGINS must be set as a Space secret (or hardcoded below)
+#
+# HuggingFace Spaces setup
+# ------------------------
+# 1. Create a new Space at https://huggingface.co/spaces
+# 2. Choose "Docker" as the SDK
+# 3. Push the entire CanopyLens repo, or just the backend/ folder as root
+# 4. Point the Space to this Dockerfile via the repo's README.md front-matter:
+#
+#       ---
+#       title: CanopyLens API
+#       sdk: docker
+#       app_port: 7860
+#       ---
+#
+# 5. Set HF Space secrets:
+#       CORS_ORIGINS=https://your-frontend.vercel.app,http://localhost:5173
+#
+# HF Spaces expects the container to listen on port 7860.
+# ==============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: builder — install heavy dependencies once, then copy into runtime
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+# Prevent interactive prompts from apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System libraries required by rasterio, shapely, OpenCV, and pyproj
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gdal-bin \
+    libgdal-dev \
+    libgeos-dev \
+    libgl1 \
+    libglib2.0-0 \
+    libproj-dev \
+    proj-bin \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use a virtual environment so the runtime stage can copy it cleanly
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy only the requirements file first (better layer caching)
+COPY requirements.txt /tmp/requirements.txt
+
+# Install CPU-only torch first so pip doesn't accidentally pull CUDA wheels.
+# torch 2.3 ships with MPS/CPU wheels on linux/amd64.
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+        torch==2.3.0+cpu \
+        torchvision==0.18.0+cpu \
+        --index-url https://download.pytorch.org/whl/cpu
+
+# Install the rest of the Python deps (minus torch/torchvision which are above)
+RUN grep -vE '^(torch|torchvision)' /tmp/requirements.txt > /tmp/requirements_notorch.txt && \
+    pip install --no-cache-dir -r /tmp/requirements_notorch.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2: model weight download
+# Pre-bake DeepForest + SAM2 weights so cold starts don't hit the network.
+# This step is a separate layer — it only re-runs if the pip layer above changes.
+# ---------------------------------------------------------------------------
+FROM builder AS model-downloader
+
+ENV PATH="/opt/venv/bin:$PATH"
+ENV HF_HOME="/opt/model-cache"
+ENV TRANSFORMERS_CACHE="/opt/model-cache"
+
+RUN python - <<'PYEOF'
+import os
+print("[build] Downloading DeepForest model weights...")
+from deepforest import main as df_main
+model = df_main.deepforest()
+model.load_model()
+print("[build] DeepForest ready.")
+
+print("[build] Downloading SAM2 model (facebook/sam2-hiera-small)...")
+from transformers import Sam2Model, Sam2Processor
+Sam2Processor.from_pretrained("facebook/sam2-hiera-small")
+Sam2Model.from_pretrained("facebook/sam2-hiera-small")
+print("[build] SAM2 ready.")
+PYEOF
+
+# ---------------------------------------------------------------------------
+# Stage 3: runtime — lean final image
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Only the runtime system libraries (no build tools)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal32 \
+    libgeos3.10.2 \
+    libgl1 \
+    libglib2.0-0 \
+    libproj22 \
+    proj-data \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy venv from builder
+COPY --from=model-downloader /opt/venv /opt/venv
+# Copy pre-downloaded model weights
+COPY --from=model-downloader /opt/model-cache /opt/model-cache
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME="/opt/model-cache" \
+    TRANSFORMERS_CACHE="/opt/model-cache" \
+    # Uploads go to /tmp on HF Spaces (ephemeral, but fine for demo)
+    CANOPYLENS_UPLOAD_ROOT="/tmp/canopylens-uploads" \
+    # Override with your actual frontend origin via HF Space secret
+    CORS_ORIGINS="http://localhost:5173" \
+    # HF Spaces requires port 7860
+    PORT="7860"
+
+# ---------------------------------------------------------------------------
+# Application source
+# ---------------------------------------------------------------------------
+WORKDIR /backend
+COPY . /backend
+
+# Create uploads directory (ephemeral on HF Spaces, but kept tidy)
+RUN mkdir -p /tmp/canopylens-uploads
+
+# ---------------------------------------------------------------------------
+# Non-root user (HF Spaces best practice)
+# ---------------------------------------------------------------------------
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /backend /tmp/canopylens-uploads
+USER appuser
+
+# ---------------------------------------------------------------------------
+# Healthcheck
+# ---------------------------------------------------------------------------
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT}/health', timeout=5)"
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+# --workers 1: one worker only — in-memory job store must not be split
+# --timeout-keep-alive 620: slightly above the 600 s pipeline timeout
+EXPOSE ${PORT}
+CMD uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port ${PORT} \
+    --workers 1 \
+    --timeout-keep-alive 620 \
+    --log-level info

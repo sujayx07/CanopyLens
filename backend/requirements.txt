@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+rasterio
+shapely
+geopandas
+pyproj
+torch
+torchvision
+deepforest
+transformers
+safetensors
+opencv-python
+numpy
+pytest
+httpx
