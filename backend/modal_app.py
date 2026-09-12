@@ -176,7 +176,7 @@ def _download_models():
 image = image.run_function(
     _download_models,
     volumes={VOLUME_MOUNT: volume},
-    gpu=modal.gpu.T4(),          # download on GPU instance so torch-cuda is happy
+    gpu="T4",                    # download on GPU instance so torch-cuda is happy
     timeout=1200,                # 20 min ceiling for initial weight download
 )
 
@@ -185,22 +185,20 @@ image = image.run_function(
 # ---------------------------------------------------------------------------
 
 # All Python source under backend/app/ plus the .env.example (for defaults)
-app_mount = modal.Mount.from_local_dir(
+image = image.add_local_dir(
     ".",
     remote_path="/app",
-    # Only mount what the app needs; exclude test files, cache, etc.
-    condition=lambda path: not any(
-        part in path
-        for part in [
-            ".pytest_cache",
-            "__pycache__",
-            ".git",
-            "sample_data",
-            "uploads",
-            ".env",
-            "node_modules",
-        ]
-    ),
+    ignore=[
+        ".pytest_cache",
+        "__pycache__",
+        ".git",
+        "sample_data",
+        "uploads",
+        ".env",
+        ".env.*",
+        "node_modules",
+        "*.pyc",
+    ],
 )
 
 # ---------------------------------------------------------------------------
@@ -209,7 +207,7 @@ app_mount = modal.Mount.from_local_dir(
 
 @app.function(
     image=image,
-    gpu=modal.gpu.T4(),
+    gpu="T4",
     # ---------------------
     # Timeout
     # Large GeoTIFF tiling (1024 px tiles) + SAM2 segmentation can take 3-5
@@ -230,7 +228,6 @@ app_mount = modal.Mount.from_local_dir(
     # ---------------------
     volumes={VOLUME_MOUNT: volume},
     # Keep the mount path in sync with CANOPYLENS_UPLOAD_ROOT env var
-    mounts=[app_mount],
     # Secrets: add modal.Secret.from_name("canopylens-secrets") here if you
     # store CORS_ORIGINS or HF_TOKEN in a Modal Secret.
 )
