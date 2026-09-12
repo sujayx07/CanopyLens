@@ -107,10 +107,11 @@ image = (
     )
     # Install torch with CUDA 12.1 wheels explicitly before other packages so
     # pip doesn't resolve to a CPU-only wheel from PyPI.
+    # Note: transformers SAM2 requires PyTorch >= 2.4.
     .pip_install(
-        "torch==2.3.0+cu121",
-        "torchvision==0.18.0+cu121",
-        find_links="https://download.pytorch.org/whl/torch_stable.html",
+        "torch==2.4.1+cu121",
+        "torchvision==0.19.1+cu121",
+        extra_index_url="https://download.pytorch.org/whl/cu121",
     )
     # Remaining Python dependencies (everything else from requirements.txt)
     .pip_install(
