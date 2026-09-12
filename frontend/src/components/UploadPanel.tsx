@@ -81,6 +81,24 @@ export function UploadPanel({ onJobCreated }: UploadPanelProps) {
     },
   });
 
+  const [loadingSample, setLoadingSample] = useState(false);
+
+  const handleLoadSample = useCallback(async () => {
+    try {
+      setLoadingSample(true);
+      const resp = await fetch("/osbs_crop.tif");
+      if (!resp.ok) throw new Error("Sample file not found");
+      const blob = await resp.blob();
+      const file = new File([blob], "osbs_crop.tif", { type: "image/tiff" });
+      setImageFile(file);
+      setImageError(null);
+    } catch {
+      setImageError("Could not load sample file. Please upload a file manually.");
+    } finally {
+      setLoadingSample(false);
+    }
+  }, []);
+
   const handleAnalyze = useCallback(() => {
     if (!imageFile) return;
     setImageError(null);
@@ -95,12 +113,34 @@ export function UploadPanel({ onJobCreated }: UploadPanelProps) {
 
       {/* ── Image drop zone ─────────────────────────────────── */}
       <div>
-        <label
-          style={{ display: "block", fontSize: "0.8125rem", fontWeight: 500,
-                   color: "var(--color-muted)", marginBottom: "0.5rem", letterSpacing: "0.03em" }}
-        >
-          AERIAL IMAGE <span style={{ color: "var(--color-error)", marginLeft: 2 }}>*</span>
-        </label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+          <label
+            style={{ fontSize: "0.8125rem", fontWeight: 500,
+                     color: "var(--color-muted)", letterSpacing: "0.03em" }}
+          >
+            AERIAL IMAGE <span style={{ color: "var(--color-error)", marginLeft: 2 }}>*</span>
+          </label>
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            disabled={isLoading || loadingSample}
+            style={{
+              background: "transparent",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-green)",
+              fontSize: "0.75rem",
+              padding: "0.25rem 0.625rem",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontFamily: "monospace",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.375rem",
+            }}
+          >
+            {loadingSample ? "Loading..." : "⚡ Use Sample GeoTIFF (337 KB)"}
+          </button>
+        </div>
 
         <DropZone
           id="image-upload"

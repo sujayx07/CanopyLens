@@ -150,6 +150,8 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
   return apiFetch<JobStatus>(`/jobs/${jobId}`);
 }
 
+import { DEMO_PACIFIC_NW_RESULT } from "./demoResults";
+
 /**
  * GET /jobs/{jobId}/result
  *
@@ -157,6 +159,9 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
  * Throws HTTP 409 if the job is not yet "done".
  */
 export async function getJobResult(jobId: string): Promise<JobResult> {
+  if (jobId === "demo-pacific-nw") {
+    return DEMO_PACIFIC_NW_RESULT;
+  }
   return apiFetch<JobResult>(`/jobs/${jobId}/result`);
 }
 

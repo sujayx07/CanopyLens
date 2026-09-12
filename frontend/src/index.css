@@ -367,3 +367,61 @@ p { margin: 0; line-height: 1.65; }
 .maplibregl-ctrl-icon {
   filter: invert(0.85) sepia(0.2) hue-rotate(85deg) !important;
 }
+
+/* ── Obsidian Canopy Typography & Telemetry Design System ── */
+.font-display-hero {
+  font-family: "Bodoni Moda", serif;
+  letter-spacing: -0.02em;
+}
+
+.font-headline-lg {
+  font-family: "Bodoni Moda", serif;
+  letter-spacing: -0.015em;
+}
+
+.font-body-ui {
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+.font-mono-telemetry {
+  font-family: "JetBrains Mono", monospace;
+}
+
+.font-space {
+  font-family: "Space Grotesk", sans-serif;
+}
+
+/* Atmospheric subtle telemetry grid */
+.telemetry-grid {
+  background-size: 48px 48px;
+  background-image: 
+    linear-gradient(to right, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+}
+
+/* Subtle pulse animation for telemetry pips */
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+.status-pulse {
+  animation: subtle-pulse 2.2s infinite ease-in-out;
+}
+
+/* Reticle crosshair cursor */
+.reticle-cursor {
+  cursor: crosshair;
+}
+
+/* Shimmer animation for glowing borders and cards */
+@keyframes border-glow-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.glow-shimmer {
+  background-size: 200% 200%;
+  animation: border-glow-flow 4s ease infinite;
+}
