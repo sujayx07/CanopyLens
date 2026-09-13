@@ -112,17 +112,50 @@ def _prepare_image_b64(image_path: str | Path, max_dim: int = 1280) -> Optional[
     """
     try:
         import cv2
+        import numpy as np
 
         path_str = str(image_path)
-        img = cv2.imread(path_str)
+        img = None
+
+        # 1. Try rasterio for GeoTIFF / multiband aerial imagery
+        try:
+            import rasterio
+
+            with rasterio.open(path_str) as ds:
+                if ds.count >= 3:
+                    arr = ds.read([1, 2, 3])
+                    rgb = np.moveaxis(arr, 0, -1)
+                elif ds.count == 1:
+                    arr = ds.read(1)
+                    rgb = np.repeat(arr[:, :, np.newaxis], 3, axis=2)
+                else:
+                    arr = ds.read()
+                    rgb = np.moveaxis(arr[:3], 0, -1)
+
+                if rgb.dtype != np.uint8:
+                    if rgb.max() <= 1.0:
+                        rgb = rgb * 255.0
+                    elif rgb.max() > 255.0:
+                        rgb = rgb / rgb.max() * 255.0
+                    rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+                img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+
+        # 2. Standard OpenCV read fallback
         if img is None:
-            # Try PIL for GeoTIFF or unsupported formats
+            img = cv2.imread(path_str)
+
+        # 3. PIL fallback
+        if img is None:
             from PIL import Image
-            import numpy as np
 
             with Image.open(path_str) as pil_img:
                 rgb = pil_img.convert("RGB")
                 img = cv2.cvtColor(np.array(rgb), cv2.COLOR_RGB2BGR)
+
+        if img is None:
+            return None
 
         h, w = img.shape[:2]
         if max(h, w) > max_dim:

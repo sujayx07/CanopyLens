@@ -53,40 +53,61 @@ export function StatsPanel({
     { high: 0, medium: 0, low: 0 }
   );
 
-  // Compute recomputed sum area
-  let adjustedSumAreaM2: number | null = null;
-  let adjustedSumAreaPx: number | null = null;
+  // Base raw sums from segmented features or backend summary
+  const rawSumAreaM2 = isGeoreferenced
+    ? (summary.sum_area_m2 ?? activeFeatures.reduce((sum, f) => sum + (f.properties.area_m2 || 0), 0))
+    : null;
+  const rawSumAreaPx = !isGeoreferenced
+    ? (summary.sum_area_px ?? activeFeatures.reduce((sum, f) => sum + (f.properties.area_px || 0), 0))
+    : null;
 
-  if (isGeoreferenced) {
-    adjustedSumAreaM2 = activeFeatures.reduce(
-      (sum, f) => sum + (f.properties.area_m2 || 0),
-      0
-    );
-  } else {
-    adjustedSumAreaPx = activeFeatures.reduce(
-      (sum, f) => sum + (f.properties.area_px || 0),
-      0
-    );
-  }
+  // Raw union areas
+  const rawUnionAreaM2 = summary.union_area_m2 ?? rawSumAreaM2;
+  const rawUnionAreaPx = summary.union_area_px ?? rawSumAreaPx;
 
-  // Union area ratio factor estimation for client-side corrections
+  // Proportional scaling for manual corrections or verified tree count
   const initialCount = allFeatures.length || 1;
+  const activeRatio = allFeatures.length > 0 ? activeFeatures.length / initialCount : 1.0;
   const countFactor = adjustedTreeCount / initialCount;
+  const scale = flaggedCount > 0 ? activeRatio : countFactor;
 
-  const adjustedUnionAreaM2 =
-    summary.union_area_m2 !== null && summary.union_area_m2 !== undefined
-      ? summary.union_area_m2 * countFactor
-      : null;
+  let adjustedSumAreaM2 = rawSumAreaM2 !== null ? rawSumAreaM2 * scale : null;
+  let adjustedSumAreaPx = rawSumAreaPx !== null ? rawSumAreaPx * scale : null;
 
-  const adjustedUnionAreaPx =
-    summary.union_area_px !== null && summary.union_area_px !== undefined
-      ? summary.union_area_px * countFactor
-      : null;
+  let adjustedUnionAreaM2 = rawUnionAreaM2 !== null ? rawUnionAreaM2 * scale : null;
+  let adjustedUnionAreaPx = rawUnionAreaPx !== null ? rawUnionAreaPx * scale : null;
+
+  // Geometric constraint: Union area cannot exceed Sum area
+  if (adjustedSumAreaM2 !== null && adjustedUnionAreaM2 !== null) {
+    adjustedUnionAreaM2 = Math.min(adjustedUnionAreaM2, adjustedSumAreaM2);
+  }
+  if (adjustedSumAreaPx !== null && adjustedUnionAreaPx !== null) {
+    adjustedUnionAreaPx = Math.min(adjustedUnionAreaPx, adjustedSumAreaPx);
+  }
 
   const adjustedCanopyCoverPct =
     summary.canopy_cover_percent !== null && summary.canopy_cover_percent !== undefined
-      ? Math.max(0, Number((summary.canopy_cover_percent * countFactor).toFixed(1)))
+      ? Math.max(0, Number((summary.canopy_cover_percent * scale).toFixed(1)))
       : null;
+
+  const currentSumArea = isGeoreferenced ? adjustedSumAreaM2 : adjustedSumAreaPx;
+  const currentUnionArea = isGeoreferenced ? adjustedUnionAreaM2 : adjustedUnionAreaPx;
+  const overlapArea = (currentSumArea !== null && currentUnionArea !== null)
+    ? Math.max(0, currentSumArea - currentUnionArea)
+    : 0;
+  const overlapPct = (currentSumArea !== null && currentSumArea > 0)
+    ? Math.max(0, Math.min(100, (overlapArea / currentSumArea) * 100))
+    : 0;
+  const hasOverlap = overlapArea > 0.5 && overlapPct >= 0.1;
+  const areaUnit = isGeoreferenced ? (currentSumArea && currentSumArea >= 10000 ? "ha" : "m²") : "px";
+
+  const formatArea = (val: number | null): string => {
+    if (val === null || val === undefined) return "0";
+    if (isGeoreferenced) {
+      return val >= 10000 ? (val / 10000).toFixed(2) : val.toFixed(1);
+    }
+    return Math.round(val).toLocaleString();
+  };
 
   // Stacked confidence bar percentages
   const totalConf =
@@ -114,8 +135,10 @@ export function StatsPanel({
               fontWeight: 500,
             }}
           >
-            <span>⚠</span>
-            <span>Pixel-based estimate — no real-world units available</span>
+            <span>Pixel Space Mode</span>
+            <span style={{ fontSize: "0.75rem", opacity: 0.85 }}>
+              (Uncalibrated image; areas in px, canopy cover N/A)
+            </span>
           </div>
         )}
 
@@ -127,24 +150,23 @@ export function StatsPanel({
               gap: "0.5rem",
               padding: "0.375rem 0.75rem",
               borderRadius: 6,
-              background: "rgba(77, 184, 84, 0.12)",
-              border: "1px solid var(--color-green)",
-              color: "var(--color-green-h)",
+              background: "rgba(220, 53, 69, 0.15)",
+              border: "1px solid #e55353",
+              color: "#ff6b6b",
               fontSize: "0.8125rem",
               fontWeight: 500,
             }}
           >
-            <span>✓</span>
             <span>
-              Reviewed: <strong>{flaggedCount}</strong> {flaggedCount === 1 ? "correction" : "corrections"} applied — adjusted count: <strong>{adjustedTreeCount}</strong>
+              {flaggedCount} {flaggedCount === 1 ? "tree" : "trees"} flagged as false positive
             </span>
             {onResetCorrections && (
               <button
                 onClick={onResetCorrections}
                 style={{
-                  background: "none",
+                  background: "transparent",
                   border: "none",
-                  color: "var(--color-muted)",
+                  color: "var(--color-gold)",
                   textDecoration: "underline",
                   cursor: "pointer",
                   fontSize: "0.75rem",
@@ -274,18 +296,16 @@ export function StatsPanel({
           </span>
           <div style={{ margin: "0.5rem 0 0.25rem" }}>
             <span style={{ fontSize: "1.875rem", fontWeight: 700, color: "var(--color-text)" }}>
-              {isGeoreferenced && adjustedSumAreaM2 !== null
-                ? `${adjustedSumAreaM2 >= 10000 ? (adjustedSumAreaM2 / 10000).toFixed(2) : adjustedSumAreaM2.toFixed(1)}`
-                : `${(adjustedSumAreaPx || 0).toLocaleString()}`}
+              {formatArea(currentSumArea)}
             </span>
             <span style={{ fontSize: "0.9375rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>
-              {isGeoreferenced && adjustedSumAreaM2 !== null
-                ? adjustedSumAreaM2 >= 10000 ? "ha" : "m²"
-                : "px"}
+              {areaUnit}
             </span>
           </div>
           <span style={{ fontSize: "0.75rem", color: "var(--color-faint)" }}>
-            Individual crowns summed directly
+            {adjustedTreeCount > 1
+              ? `Direct sum of ${adjustedTreeCount} crown spreads`
+              : "Individual crown spread"}
           </span>
         </div>
 
@@ -305,24 +325,22 @@ export function StatsPanel({
             Union (Non-overlapping) Area
           </span>
           <div style={{ margin: "0.5rem 0 0.25rem" }}>
-            <span style={{ fontSize: "1.875rem", fontWeight: 700, color: "var(--color-text)" }}>
-              {isGeoreferenced && adjustedUnionAreaM2 !== null
-                ? `${adjustedUnionAreaM2 >= 10000 ? (adjustedUnionAreaM2 / 10000).toFixed(2) : adjustedUnionAreaM2.toFixed(1)}`
-                : `${(adjustedUnionAreaPx || 0).toLocaleString()}`}
+            <span style={{ fontSize: "1.875rem", fontWeight: 700, color: hasOverlap ? "var(--color-green-h)" : "var(--color-text)" }}>
+              {formatArea(currentUnionArea)}
             </span>
             <span style={{ fontSize: "0.9375rem", color: "var(--color-muted)", marginLeft: "0.25rem" }}>
-              {isGeoreferenced && adjustedUnionAreaM2 !== null
-                ? adjustedUnionAreaM2 >= 10000 ? "ha" : "m²"
-                : "px"}
+              {areaUnit}
             </span>
           </div>
-          <span style={{ fontSize: "0.75rem", color: "var(--color-faint)" }}>
-            Geometric dissolve removing overlap
+          <span style={{ fontSize: "0.75rem", color: hasOverlap ? "var(--color-green-h)" : "var(--color-faint)" }}>
+            {hasOverlap
+              ? `${overlapPct.toFixed(1)}% canopy overlap dissolved`
+              : "0% overlap — isolated canopy footprint"}
           </span>
         </div>
       </div>
 
-      {/* Explicit One-Line Explanation of Area Difference */}
+      {/* Explicit One-Line Explanation of Area Difference / Overlap */}
       <div
         style={{
           background: "rgba(15, 26, 18, 0.6)",
@@ -336,9 +354,19 @@ export function StatsPanel({
           gap: "0.5rem",
         }}
       >
-        <span style={{ color: "var(--color-green)" }}>💡</span>
+        <span style={{ color: "var(--color-green)", flexShrink: 0 }}>
+          {hasOverlap ? "💡" : "ℹ️"}
+        </span>
         <span>
-          <strong>Why do Sum and Union areas differ?</strong> Overlapping crowns are counted multiple times in the <em>Sum</em>, whereas <em>Union Area</em> merges touching canopies so overlapping foliage is calculated exactly once.
+          {hasOverlap ? (
+            <>
+              <strong>Canopy overlap detected:</strong> {overlapPct.toFixed(1)}% ({formatArea(overlapArea)} {areaUnit}) of foliage is shared between touching crowns. <em>Sum</em> totals individual tree crown spreads, while <em>Union</em> dissolves overlapping foliage into the true ground canopy footprint.
+            </>
+          ) : (
+            <>
+              <strong>Zero canopy overlap:</strong> <em>Sum</em> and <em>Union</em> areas are identical because all detected tree crowns in this scene are spatially isolated with no touching or overlapping canopies.
+            </>
+          )}
         </span>
       </div>
 

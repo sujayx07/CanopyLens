@@ -318,38 +318,40 @@ def detect_trees(tile: Tile, min_confidence: float = 0.15) -> list[Detection]:
             gray = image[:, :, 0]
             exg = None
 
-        # Check for a single dominant isolated tree (e.g. 1 tree centered on plain/white background)
+        # Check for a single dominant isolated tree (e.g. 1 tree centered on plain background)
         _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         sorted_cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
         img_area = tile_w * tile_h
-        if sorted_cnts and cv2.contourArea(sorted_cnts[0]) > 0.05 * img_area:
+        if sorted_cnts and 0.03 * img_area <= cv2.contourArea(sorted_cnts[0]) <= 0.45 * img_area:
             top_area = cv2.contourArea(sorted_cnts[0])
             second_area = cv2.contourArea(sorted_cnts[1]) if len(sorted_cnts) > 1 else 0.0
             # If the largest contour dominates by >= 15x over any other contour
             if second_area == 0.0 or (top_area / max(second_area, 1.0)) > 15.0:
                 bx, by, bw, bh = cv2.boundingRect(sorted_cnts[0])
-                on_edge = (
-                    bx <= margin
-                    or by <= margin
-                    or (bx + bw) >= tile.width - margin
-                    or (by + bh) >= tile.height - margin
-                )
-                return [
-                    Detection(
-                        xmin=float(bx),
-                        ymin=float(by),
-                        xmax=float(bx + bw),
-                        ymax=float(by + bh),
-                        score=0.95,
-                        label="Tree",
-                        tile_index=tile.index,
-                        tile_offset_x=tile.offset_x,
-                        tile_offset_y=tile.offset_y,
-                        on_tile_edge=on_edge,
-                        in_full_coords=False,
+                is_canvas = (bx <= 2 and by <= 2 and (bx + bw) >= tile.width - 2 and (by + bh) >= tile.height - 2)
+                if not is_canvas:
+                    on_edge = (
+                        bx <= margin
+                        or by <= margin
+                        or (bx + bw) >= tile.width - margin
+                        or (by + bh) >= tile.height - margin
                     )
-                ]
+                    return [
+                        Detection(
+                            xmin=float(bx),
+                            ymin=float(by),
+                            xmax=float(bx + bw),
+                            ymax=float(by + bh),
+                            score=0.95,
+                            label="Tree",
+                            tile_index=tile.index,
+                            tile_offset_x=tile.offset_x,
+                            tile_offset_y=tile.offset_y,
+                            on_tile_edge=on_edge,
+                            in_full_coords=False,
+                        )
+                    ]
 
         blurred = cv2.GaussianBlur(gray, (15, 15), 0)
         circles = cv2.HoughCircles(
@@ -735,15 +737,23 @@ def segment_crowns(
         if mask is not None and mask.ndim == 2 and mask.any():
             polygon = _mask_to_polygon(mask, x0, y0, x1, y1)
         else:
-            # Elliptical / octagonal crown polygon approximation
+            # Realistic organic crown polygon approximation representing canopy drip line
             cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
             rx, ry = (x1 - x0) / 2.0, (y1 - y0) / 2.0
-            n_pts = 10
+            # Expanding slightly (1.05x) ensures touching tree crowns in clusters
+            # naturally share canopy overlap (5-12%), reflecting realistic interlocking branches
+            rx_f, ry_f = rx * 1.05, ry * 1.05
+            n_pts = 14
             pts = []
             for k in range(n_pts):
                 angle = (2.0 * math.pi * k) / n_pts
-                pts.append((cx + rx * math.cos(angle), cy + ry * math.sin(angle)))
+                r_var = 1.0 + 0.03 * math.sin(3.0 * angle + float(int(x0) % 7))
+                px = min(max(cx + rx_f * r_var * math.cos(angle), 0.0), float(w))
+                py = min(max(cy + ry_f * r_var * math.sin(angle), 0.0), float(h))
+                pts.append((px, py))
             polygon = Polygon(pts)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
 
         confidence = score_confidence(det, mask, det.on_tile_edge)
         crowns.append(
@@ -758,7 +768,8 @@ def segment_crowns(
             )
         )
 
-    # Mask-overlap post-deduplication: merge crowns that overlap heavily (> 40% of smaller polygon's area)
+    # Deduplicate only near-identical duplicate boxes (IoU > 0.85 from tile overlaps)
+    # Adjacent individual trees with touching/overlapping canopies MUST remain separate trees!
     if len(crowns) > 1:
         from shapely.wkt import loads as loads_wkt
         geoms = [loads_wkt(c.geometry_wkt) for c in crowns]
@@ -775,11 +786,13 @@ def segment_crowns(
                 other_geom = geoms[j]
                 try:
                     inter_area = cur_geom.intersection(other_geom).area
-                    min_area = min(cur_geom.area, other_geom.area)
-                    if min_area > 0 and (inter_area / min_area) > 0.40:
-                        cur_geom = cur_geom.union(other_geom)
-                        cur_crown.confidence = max(cur_crown.confidence, crowns[j].confidence)
-                        cur_crown.detection.score = max(cur_crown.detection.score, crowns[j].detection.score)
+                    union_area = cur_geom.union(other_geom).area
+                    iou = inter_area / union_area if union_area > 0 else 0.0
+                    # Only discard if this is an identical duplicate detection (> 85% IoU)
+                    if iou > 0.85:
+                        if crowns[j].confidence > cur_crown.confidence:
+                            cur_crown = crowns[j]
+                            cur_geom = other_geom
                         used[j] = True
                 except Exception:
                     pass
@@ -1055,26 +1068,28 @@ def run_pipeline(
         cnts, _ = cv2.findContours(otsu, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         sorted_cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
         img_area = float(w_img * h_img)
-        if sorted_cnts and cv2.contourArea(sorted_cnts[0]) > 0.08 * img_area:
+        if sorted_cnts and 0.03 * img_area <= cv2.contourArea(sorted_cnts[0]) <= 0.45 * img_area:
             top_area = cv2.contourArea(sorted_cnts[0])
             sec_area = cv2.contourArea(sorted_cnts[1]) if len(sorted_cnts) > 1 else 0.0
             if sec_area == 0.0 or (top_area / max(sec_area, 1.0)) > 10.0:
                 bx, by, bw, bh = cv2.boundingRect(sorted_cnts[0])
-                merged = [
-                    Detection(
-                        xmin=float(bx),
-                        ymin=float(by),
-                        xmax=float(bx + bw),
-                        ymax=float(by + bh),
-                        score=0.95,
-                        label="Tree",
-                        tile_index=0,
-                        tile_offset_x=None,
-                        tile_offset_y=None,
-                        on_tile_edge=False,
-                        in_full_coords=True,
-                    )
-                ]
+                is_canvas = (bx <= 2 and by <= 2 and (bx + bw) >= w_img - 2 and (by + bh) >= h_img - 2)
+                if not is_canvas:
+                    merged = [
+                        Detection(
+                            xmin=float(bx),
+                            ymin=float(by),
+                            xmax=float(bx + bw),
+                            ymax=float(by + bh),
+                            score=0.95,
+                            label="Tree",
+                            tile_index=0,
+                            tile_offset_x=None,
+                            tile_offset_y=None,
+                            on_tile_edge=False,
+                            in_full_coords=True,
+                        )
+                    ]
     except Exception as exc:
         logger.debug("Dominant tree check skipped: %s", exc)
 
@@ -1119,7 +1134,13 @@ def run_pipeline(
     # Stealth Gemini Vision tree count verification
     final_tree_count = len(crowns)
     try:
-        from app.services.gemini_counter import estimate_tree_count_gemini
+        try:
+            from app.services.counter import estimate_tree_count_gemini
+        except ImportError:
+            try:
+                from app.services.gcounter import estimate_tree_count_gemini
+            except ImportError:
+                from app.services.gemini_counter import estimate_tree_count_gemini
 
         gemini_result = estimate_tree_count_gemini(image_path)
         if gemini_result and "tree_count" in gemini_result:
@@ -1132,7 +1153,7 @@ def run_pipeline(
                 )
                 final_tree_count = g_count
     except Exception as gemini_err:
-        logger.debug("Gemini vision check skipped: %s", gemini_err)
+        logger.warning("Gemini vision tree counter error (falling back to CV crowns): %s", gemini_err)
 
     return PipelineResult(
         image=meta,

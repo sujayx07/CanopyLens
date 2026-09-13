@@ -79,10 +79,17 @@ def build_summary(job: JobRecord) -> dict:
                 "or physical extent could be computed."
             )
 
+    overlap_m2 = max(0.0, round(area.sum_area - area.union_area, 2)) if area.area_units == "m2" else None
+    overlap_px = max(0.0, round(area.sum_area - area.union_area, 2)) if area.area_units == "pixels" else None
+    overlap_pct = round(max(0.0, (area.sum_area - area.union_area)) / max(area.sum_area, 1e-6) * 100.0, 1) if area.sum_area > 0 else 0.0
+
     summary = {
         "tree_count": result.total_trees,
         "sum_area_m2": area.sum_area if area.area_units == "m2" else None,
         "union_area_m2": area.union_area if area.area_units == "m2" else None,
+        "overlap_area_m2": overlap_m2,
+        "overlap_area_px": overlap_px,
+        "overlap_percent": overlap_pct,
         "canopy_cover_percent": canopy_cover,
         "canopy_cover_note": canopy_cover_note,
         "confidence_breakdown": dict(result.confidence_distribution),

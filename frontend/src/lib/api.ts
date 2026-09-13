@@ -108,6 +108,9 @@ export interface ResultSummary {
   /** Present only when not georeferenced. */
   sum_area_px?: number;
   union_area_px?: number;
+  overlap_percent?: number;
+  overlap_area_m2?: number | null;
+  overlap_area_px?: number | null;
 }
 
 /** GET /jobs/{job_id}/result */

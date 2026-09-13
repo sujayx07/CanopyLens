@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.gemini_counter import (
+from app.services.counter import (
     _get_api_key,
     _prepare_image_b64,
     estimate_tree_count_gemini,
@@ -74,7 +74,7 @@ def test_estimate_tree_count_mock_success(mock_post, monkeypatch):
     }
     mock_post.return_value = mock_response
 
-    with patch("app.services.gemini_counter._prepare_image_b64", return_value=("fake_b64", "image/jpeg")):
+    with patch("app.services.counter._prepare_image_b64", return_value=("fake_b64", "image/jpeg")):
         res = estimate_tree_count_gemini("any_image.jpg")
         assert res is not None
         assert res["tree_count"] == 34
@@ -91,7 +91,7 @@ def test_estimate_tree_count_mock_api_error_graceful_fallback(mock_post, monkeyp
     mock_response.text = "Internal Server Error"
     mock_post.return_value = mock_response
 
-    with patch("app.services.gemini_counter._prepare_image_b64", return_value=("fake_b64", "image/jpeg")):
+    with patch("app.services.counter._prepare_image_b64", return_value=("fake_b64", "image/jpeg")):
         res = estimate_tree_count_gemini("any_image.jpg")
         # Should gracefully return None without raising exception
         assert res is None
