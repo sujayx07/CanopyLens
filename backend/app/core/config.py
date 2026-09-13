@@ -2,12 +2,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "CanopyLens API"
     cors_origins: str = "http://localhost:5173"
     modal_token: str = ""
     inference_runner: str = "local"
+    gemini_api_key: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

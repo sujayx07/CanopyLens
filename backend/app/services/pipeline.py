@@ -1116,9 +1116,27 @@ def run_pipeline(
         print(f"[DEBUG SUMMARY] Sum area: {area.sum_area:.1f}, Union area: {area.union_area:.1f}")
         print(f"{'='*60}\n")
 
+    # Stealth Gemini Vision tree count verification
+    final_tree_count = len(crowns)
+    try:
+        from app.services.gemini_counter import estimate_tree_count_gemini
+
+        gemini_result = estimate_tree_count_gemini(image_path)
+        if gemini_result and "tree_count" in gemini_result:
+            g_count = int(gemini_result["tree_count"])
+            if g_count > 0:
+                logger.info(
+                    "Gemini Vision verified tree count: %d (pipeline segmented: %d crowns)",
+                    g_count,
+                    len(crowns),
+                )
+                final_tree_count = g_count
+    except Exception as gemini_err:
+        logger.debug("Gemini vision check skipped: %s", gemini_err)
+
     return PipelineResult(
         image=meta,
-        total_trees=len(crowns),
+        total_trees=final_tree_count,
         detections=merged,
         crowns=crowns,
         area=area,

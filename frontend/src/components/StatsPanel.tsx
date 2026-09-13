@@ -38,7 +38,8 @@ export function StatsPanel({
     (f) => !flaggedIds.has(f.properties.tree_id)
   );
 
-  const adjustedTreeCount = activeFeatures.length;
+  const baseCount = typeof summary.tree_count === "number" ? summary.tree_count : activeFeatures.length;
+  const adjustedTreeCount = Math.max(0, baseCount - flaggedCount);
 
   // Recompute confidence breakdown based on active crowns
   const confidenceBreakdown = activeFeatures.reduce(
