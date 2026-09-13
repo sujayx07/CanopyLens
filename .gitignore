@@ -24,3 +24,11 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+# ML Checkpoints / Weights (>100MB exceeds GitHub limits)
+*.pt
+*.pth
+*.bin
+*.onnx
+backend/models/*.pt
+!backend/models/.gitkeep

@@ -1,6 +1,6 @@
 record_type,name_or_category,density,gt_count,pred_count,tp,fp,fn,precision,recall,f1_score,mean_iou,duration_seconds
-image,meadow_sparse.jpg,sparse,34,46,34,12,0,0.7391,1.0,0.85,0.7488,39.37
-image,single_tree_isolated.jpg,isolated,1,1,1,0,0,1.0,1.0,1.0,0.5873,6.76
+image,meadow_sparse.jpg,sparse,34,46,34,12,0,0.7391,1.0,0.85,0.7344,18.03
+image,single_tree_isolated.jpg,isolated,1,1,1,0,0,1.0,1.0,1.0,0.5873,6.25
 density_group,Isolated,isolated,1,1,1,0,0,1.0,1.0,1.0,0.5873,
-density_group,Sparse,sparse,34,46,34,12,0,0.7391,1.0,0.85,0.7488,
-overall,Overall,all,35,47,35,12,0,0.7447,1.0,0.8537,0.7442,
+density_group,Sparse,sparse,34,46,34,12,0,0.7391,1.0,0.85,0.7344,
+overall,Overall,all,35,47,35,12,0,0.7447,1.0,0.8537,0.7302,

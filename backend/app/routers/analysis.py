@@ -122,11 +122,11 @@ async def _save_upload(destination: Path, upload: UploadFile) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _process_job(job_id: str) -> None:
-    """Run the ML pipeline for *job_id* in a background thread.
+def _run_pipeline_task(job_id: str, use_finetuned: Optional[bool] = None):
+    """Background task: execute the full ML pipeline for *job_id*.
 
-    FastAPI's BackgroundTasks executes this in a thread-pool worker so it does
-    not block the async event loop. All state transitions and structured log
+    Updates the JobStore to 'processing', then 'done' (with results) or
+    'failed' (with an error message).  Every state change and intermediate
     events are written here so the frontend can always poll a real status.
     """
     job = job_store.get(job_id)
@@ -138,14 +138,15 @@ def _process_job(job_id: str) -> None:
     started = time.perf_counter()
 
     logger.info(
-        "job_start job_id=%s image=%s kml=%s",
+        "job_start job_id=%s image=%s kml=%s use_finetuned=%s",
         job_id,
         job.image_path,
         job.kml_path or "none",
+        use_finetuned,
     )
 
     try:
-        result = run_pipeline(job.image_path, kml_path=job.kml_path)
+        result = run_pipeline(job.image_path, kml_path=job.kml_path, use_finetuned=use_finetuned)
 
         # Persist the rasterio affine transform as a plain dict so it can be
         # used later by the results serialiser without reimporting rasterio.
@@ -221,6 +222,7 @@ async def analyze(
             "Only detections within the polygon boundary are kept."
         ),
     ),
+    use_finetuned: Optional[bool] = None,
 ):
     """Accept an image upload, validate it, and enqueue a pipeline job.
 
@@ -329,7 +331,7 @@ async def analyze(
         str(image_path),
         str(kml_path) if kml_path is not None else None,
     )
-    background.add_task(_process_job, job.id)
+    background.add_task(_run_pipeline_task, job.id, use_finetuned=use_finetuned)
 
     logger.info(
         "job_queued job_id=%s image=%s kml=%s",

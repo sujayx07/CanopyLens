@@ -1,7 +1,9 @@
 import logging
 import math
+import os
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Optional
 
 from app.models.pipeline_models import (
@@ -19,13 +21,52 @@ logger = logging.getLogger(__name__)
 
 
 def get_deepforest_model():
-    if "deepforest" not in _model_cache:
+    use_finetuned = os.getenv("USE_FINETUNED_MODEL", "false").lower() in ("true", "1", "yes")
+    cache_key = "deepforest_finetuned" if use_finetuned else "deepforest_stock"
+    if cache_key not in _model_cache:
+        import torch
         from deepforest import main
 
         model = main.deepforest()
         model.load_model()
-        _model_cache["deepforest"] = model
-    return _model_cache["deepforest"]
+
+        if use_finetuned:
+            possible_paths = [
+                Path(__file__).resolve().parent.parent.parent / "models" / "deepforest_finetuned.pt",
+                Path("/canopylens-data/models/deepforest_finetuned.pt"),
+                Path("backend/models/deepforest_finetuned.pt"),
+                Path("models/deepforest_finetuned.pt"),
+            ]
+            loaded = False
+            for p in possible_paths:
+                if p.is_file():
+                    try:
+                        logger.info(f"Loading fine-tuned DeepForest checkpoint from {p}")
+                        checkpoint = torch.load(str(p), map_location="cpu")
+                        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+                            state_dict = checkpoint["state_dict"]
+                        elif isinstance(checkpoint, dict):
+                            state_dict = checkpoint
+                        else:
+                            state_dict = None
+
+                        if state_dict:
+                            cleaned = {k.replace("model.", ""): v for k, v in state_dict.items()}
+                            model.model.load_state_dict(cleaned, strict=False)
+                            logger.info(f"Successfully loaded fine-tuned DeepForest model from {p}")
+                            loaded = True
+                            break
+                    except Exception as err:
+                        logger.warning(f"Error loading fine-tuned model from {p}: {err}")
+
+            if not loaded:
+                logger.warning(
+                    "USE_FINETUNED_MODEL was set, but no valid checkpoint was found at expected locations. "
+                    "Defaulting to stock DeepForest release model."
+                )
+
+        _model_cache[cache_key] = model
+    return _model_cache[cache_key]
 
 
 def get_sam2():
@@ -918,8 +959,12 @@ def run_pipeline(
     image_path: str,
     kml_path: Optional[str] = None,
     debug: bool = False,
+    use_finetuned: Optional[bool] = None,
 ) -> PipelineResult:
     import shapely
+
+    if use_finetuned is not None:
+        os.environ["USE_FINETUNED_MODEL"] = "true" if use_finetuned else "false"
 
     started = time.perf_counter()
     logger.info(
