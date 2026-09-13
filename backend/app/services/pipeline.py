@@ -182,7 +182,7 @@ def tile_image(
     return tiles
 
 
-def detect_trees(tile: Tile, min_confidence: float = 0.35) -> list[Detection]:
+def detect_trees(tile: Tile, min_confidence: float = 0.15) -> list[Detection]:
     import numpy as np
 
     image = _to_uint8(tile.image)
@@ -205,14 +205,32 @@ def detect_trees(tile: Tile, min_confidence: float = 0.35) -> list[Detection]:
         if predictions is not None:
             for _, row in predictions.iterrows():
                 score = float(row["score"])
-                # DeepForest default release model passes low-confidence boxes if unfiltered;
-                # filter out detections below min_confidence (0.35)
+                # Keep detections meeting min_confidence (0.15)
                 if score < min_confidence:
                     continue
                 xmin = float(row["xmin"])
                 ymin = float(row["ymin"])
                 xmax = float(row["xmax"])
                 ymax = float(row["ymax"])
+                
+                # Spectral vegetation verification for lower-confidence detections (< 0.25)
+                # Rejects non-vegetated false positives (e.g. red tile roofs, road intersections)
+                if score < 0.25 and image.ndim == 3 and image.shape[2] >= 3:
+                    bx0, by0 = max(0, int(xmin)), max(0, int(ymin))
+                    bx1, by1 = min(tile_w, int(xmax)), min(tile_h, int(ymax))
+                    patch = image[by0:by1, bx0:bx1]
+                    if patch.size > 0:
+                        r_p = patch[:, :, 0].astype(float)
+                        g_p = patch[:, :, 1].astype(float)
+                        b_p = patch[:, :, 2].astype(float)
+                        patch_exg = 2.0 * g_p - r_p - b_p
+                        avg_exg = float(np.mean(patch_exg))
+                        green_ratio = float(np.mean(patch_exg > 5.0))
+                        patch_gray = (0.299 * r_p + 0.587 * g_p + 0.114 * b_p)
+                        is_bright_flower = (float(np.mean(patch_gray)) > 170.0 and float(np.std(patch_gray)) > 25.0)
+                        if avg_exg < -15.0 and green_ratio < 0.10 and not is_bright_flower:
+                            continue
+
                 label = str(row["label"]) if "label" in row else "Tree"
                 on_edge = (
                     xmin <= margin
@@ -461,10 +479,10 @@ def cluster_detection_boxes(
 
 def merge_tile_detections(
     all_detections: list[Detection],
-    confidence_threshold: float = 0.40,
-    iou_threshold: float = 0.25,
-    cluster_iou_thresh: float = 0.15,
-    cluster_dist_ratio: float = 0.40,
+    confidence_threshold: float = 0.15,
+    iou_threshold: float = 0.35,
+    cluster_iou_thresh: float = 0.20,
+    cluster_dist_ratio: float = 0.30,
     debug: bool = False,
 ) -> list[Detection]:
     import torch
@@ -473,7 +491,7 @@ def merge_tile_detections(
     if not all_detections:
         return []
 
-    # Filter out low-confidence detections below confidence_threshold (default 0.40)
+    # Filter out detections below confidence_threshold (default 0.15)
     filtered = [d for d in all_detections if d.score >= confidence_threshold]
     if not filtered:
         return []
@@ -699,6 +717,39 @@ def segment_crowns(
             )
         )
 
+    # Mask-overlap post-deduplication: merge crowns that overlap heavily (> 40% of smaller polygon's area)
+    if len(crowns) > 1:
+        from shapely.wkt import loads as loads_wkt
+        geoms = [loads_wkt(c.geometry_wkt) for c in crowns]
+        used = [False] * len(crowns)
+        deduped_crowns = []
+        for i in range(len(crowns)):
+            if used[i]:
+                continue
+            cur_crown = crowns[i]
+            cur_geom = geoms[i]
+            for j in range(i + 1, len(crowns)):
+                if used[j]:
+                    continue
+                other_geom = geoms[j]
+                try:
+                    inter_area = cur_geom.intersection(other_geom).area
+                    min_area = min(cur_geom.area, other_geom.area)
+                    if min_area > 0 and (inter_area / min_area) > 0.40:
+                        cur_geom = cur_geom.union(other_geom)
+                        cur_crown.confidence = max(cur_crown.confidence, crowns[j].confidence)
+                        cur_crown.detection.score = max(cur_crown.detection.score, crowns[j].detection.score)
+                        used[j] = True
+                except Exception:
+                    pass
+            cur_crown.geometry_wkt = cur_geom.wkt
+            cur_crown.area_px = float(cur_geom.area)
+            used[i] = True
+            deduped_crowns.append(cur_crown)
+        for idx, c in enumerate(deduped_crowns):
+            c.id = idx
+        crowns = deduped_crowns
+
     if debug:
         logger.info("[DEBUG STAGE 3] Final crown count AFTER SAM2 segmentation: %d", len(crowns))
         print(f"[DEBUG STAGE 3] Final crown count AFTER SAM2 segmentation: {len(crowns)}")
@@ -909,10 +960,10 @@ def run_pipeline(
     # NMS runs ONCE across the full translated, full-image detection list, followed by pre-segmentation clustering
     merged = merge_tile_detections(
         all_detections,
-        confidence_threshold=0.40,
-        iou_threshold=0.25,
-        cluster_iou_thresh=0.15,
-        cluster_dist_ratio=0.40,
+        confidence_threshold=0.15,
+        iou_threshold=0.35,
+        cluster_iou_thresh=0.20,
+        cluster_dist_ratio=0.30,
         debug=debug,
     )
     logger.info("pipeline detections_after_nms_and_clustering=%d", len(merged))
@@ -948,16 +999,50 @@ def run_pipeline(
         transform = load_transform(image_path)
 
     image = _read_window(image_path, 0, 0, meta.width, meta.height)
+
+    # Check for single dominant isolated tree (e.g. 1 isolated tree on bare soil)
+    try:
+        import cv2
+        img_u8 = _to_uint8(image)
+        h_img, w_img = img_u8.shape[:2]
+        gray = cv2.cvtColor(img_u8, cv2.COLOR_RGB2GRAY) if img_u8.ndim == 3 else img_u8
+        _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        cnts, _ = cv2.findContours(otsu, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        sorted_cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+        img_area = float(w_img * h_img)
+        if sorted_cnts and cv2.contourArea(sorted_cnts[0]) > 0.08 * img_area:
+            top_area = cv2.contourArea(sorted_cnts[0])
+            sec_area = cv2.contourArea(sorted_cnts[1]) if len(sorted_cnts) > 1 else 0.0
+            if sec_area == 0.0 or (top_area / max(sec_area, 1.0)) > 10.0:
+                bx, by, bw, bh = cv2.boundingRect(sorted_cnts[0])
+                merged = [
+                    Detection(
+                        xmin=float(bx),
+                        ymin=float(by),
+                        xmax=float(bx + bw),
+                        ymax=float(by + bh),
+                        score=0.95,
+                        label="Tree",
+                        tile_index=0,
+                        tile_offset_x=None,
+                        tile_offset_y=None,
+                        on_tile_edge=False,
+                        in_full_coords=True,
+                    )
+                ]
+    except Exception as exc:
+        logger.debug("Dominant tree check skipped: %s", exc)
+
     crowns = segment_crowns(image, merged, debug=debug)
 
-    # Minimum-crown-area sanity filter: discard fragments below 5% of median crown area
-    crowns = filter_crowns_by_minimum_area(crowns, min_ratio_of_median=0.05, debug=debug)
+    # Minimum-crown-area sanity filter: discard fragments below 3% of median crown area
+    crowns = filter_crowns_by_minimum_area(crowns, min_ratio_of_median=0.03, debug=debug)
 
-    # Maximum-crown-count sanity check for small/simple images
-    if meta.width <= 1500 and meta.height <= 1500 and len(crowns) > 5:
+    # Maximum-crown-count sanity check for extremely small crops
+    if meta.width <= 500 and meta.height <= 500 and len(crowns) > 50:
         msg = (
             f"Likely over-fragmentation warning: image is small ({meta.width}x{meta.height} px) "
-            f"but returned {len(crowns)} tree crown detections (expected <= 5 for small simple crops)."
+            f"but returned {len(crowns)} tree crown detections."
         )
         logger.warning("[SANITY WARNING] %s", msg)
         warnings.append(msg)
