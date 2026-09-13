@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     modal_token: str = ""
     inference_runner: str = "local"
     gemini_api_key: str = ""
+    carto_api_key: str = "eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfMm05d2U2N2UiLCJqdGkiOiI0ODQ5N2I4MCJ9.SEMBKiqTW6nNRNOe-Wd5pGxpJUY_BxyJCj4NsnFGlUs"
+    carto_api_base_url: str = "https://gcp-us-east1.api.carto.com"
 
     @property
     def cors_origin_list(self) -> list[str]:

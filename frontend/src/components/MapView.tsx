@@ -76,6 +76,11 @@ export function MapView({
       return;
     }
 
+    const cartoApiKey =
+      (import.meta.env.VITE_CARTO_API_KEY as string | undefined) ||
+      "eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfMm05d2U2N2UiLCJqdGkiOiI0ODQ5N2I4MCJ9.SEMBKiqTW6nNRNOe-Wd5pGxpJUY_BxyJCj4NsnFGlUs";
+    const cartoTileQuery = cartoApiKey ? `?api_key=${encodeURIComponent(cartoApiKey)}` : "";
+
     let map: Map;
     try {
       map = new maplibregl.Map({
@@ -86,8 +91,10 @@ export function MapView({
             osm: {
               type: "raster",
               tiles: [
-                "https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png",
-                "https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png",
+                `https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png${cartoTileQuery}`,
+                `https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png${cartoTileQuery}`,
+                `https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png${cartoTileQuery}`,
+                `https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png${cartoTileQuery}`,
               ],
               tileSize: 256,
               attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap',
