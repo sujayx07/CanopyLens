@@ -13,7 +13,7 @@
 
 **High-precision instance segmentation translating multi-spectral GeoTIFF orthomosaics into vectorized tree crown polygons, automated non-overlapping canopy cover percentages, and ecological telemetry.**
 
-[Explore Live Demo](https://canopy-lens.vercel.app) • [Modal API Swagger Docs](https://iphoneindiatoday--canopylens-fastapi-app.modal.run/docs) • [GitHub Repository](https://github.com/sujayx07/CanopyLens)
+[Explore Live Demo](https://canopy-lens.vercel.app) • [Modal API Swagger Docs](https://iphoneindiatoday--canopylens-fastapi-app.modal.run/docs) • [Technical Documentation](DOCUMENTATION.md) • [GitHub Repository](https://github.com/sujayx07/CanopyLens)
 
 </div>
 
