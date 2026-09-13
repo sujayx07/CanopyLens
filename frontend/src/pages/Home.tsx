@@ -13,6 +13,7 @@ import { UploadPanel } from "../components/UploadPanel";
 import { ProcessingPanel } from "../components/ProcessingPanel";
 import { ResultsPanel } from "../components/ResultsPanel";
 import { LandingPage } from "../components/LandingPage";
+import { LeafIcon } from "../components/LeafIcon";
 
 export type AppState =
   | { phase: "landing" }
@@ -23,32 +24,6 @@ export type AppState =
 interface HomeProps {
   initialPhase?: "landing" | "upload" | "done";
   initialJobId?: string;
-}
-
-// ── Brand logo ────────────────────────────────────────────────────────────────
-
-function LeafIcon() {
-  return (
-    <svg
-      width="28" height="28" viewBox="0 0 28 28" fill="none"
-      aria-hidden="true" style={{ flexShrink: 0 }}
-    >
-      <path
-        d="M14 3C14 3 5 7 5 16c0 4.97 4.03 9 9 9s9-4.03 9-9c0-3-1.2-5.73-3.16-7.73"
-        stroke="#10B981" strokeWidth="2" strokeLinecap="round"
-      />
-      <path
-        d="M14 25V13M14 13c0 0-3-3-6-3"
-        stroke="#10B981" strokeWidth="2"
-        strokeLinecap="round" strokeLinejoin="round"
-      />
-      <path
-        d="M14 18c0 0 2.5-2 5-2"
-        stroke="#6EE7B7" strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 // ── Phase pip indicator ───────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getHealth } from "../lib/api";
 import { UploadPanel } from "./UploadPanel";
+import { LeafIcon } from "./LeafIcon";
 
 interface LandingPageProps {
   onLaunchWorkspace: () => void;
@@ -129,16 +130,15 @@ export function LandingPage({
       <header className="fixed top-0 left-0 right-0 w-full z-50 bg-[#0A0F0D]/85 backdrop-blur-md border-b border-[#3C4A42]/50 shadow-lg">
         <div className="flex justify-between items-center w-full px-6 md:px-12 max-w-7xl mx-auto h-16">
           {/* Logo */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-            <div className="w-9 h-9 rounded-lg bg-[#182B1B] border border-[#2D5A30] flex items-center justify-center text-[#10B981] shadow-inner">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-              </svg>
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+            <div className="w-9 h-9 rounded-lg bg-[#142318] border border-[#2D5A30] flex items-center justify-center shadow-inner group-hover:border-[#10B981] transition-colors">
+              <LeafIcon size={22} />
             </div>
             <div className="flex flex-col">
-              <span className="font-space text-lg font-bold tracking-tight text-[#F8FAFC] flex items-center gap-1.5">
-                CanopyLens
-                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] inline-block"></span>
+              <span className="font-space text-lg font-bold tracking-tight flex items-center">
+                <span className="text-[#F8FAFC]">Canopy</span>
+                <span className="text-[#10B981]">Lens</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] inline-block ml-1.5"></span>
               </span>
               <span className="font-mono-telemetry text-[9px] text-[#7AAA80] tracking-widest uppercase -mt-0.5">
                 ECOLOGICAL CROWN AI
@@ -921,10 +921,14 @@ export function LandingPage({
       <footer className="w-full bg-[#070B09] border-t border-[#3C4A42]/30 py-12">
         <div className="max-w-7xl mx-auto px-6 md:px-12 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex flex-col gap-1 text-center md:text-left">
-            <span className="font-space text-base font-bold text-[#F8FAFC] flex items-center gap-2 justify-center md:justify-start">
-              CanopyLens
-              <span className="font-mono-telemetry text-xs text-[#10B981] font-normal">v3.4.2</span>
-            </span>
+            <div className="flex items-center gap-2 justify-center md:justify-start">
+              <LeafIcon size={20} />
+              <span className="font-space text-base font-bold flex items-center">
+                <span className="text-[#F8FAFC]">Canopy</span>
+                <span className="text-[#10B981]">Lens</span>
+              </span>
+              <span className="font-mono-telemetry text-xs text-[#10B981] font-normal ml-1">v3.4.2</span>
+            </div>
             <p className="font-body-ui text-xs text-[#86948A] max-w-xl">
               © 2026 CanopyLens Spatial Intelligence. Tree crown segmentation algorithms verified under ISO 19115-1 geospatial metadata standards.
             </p>
