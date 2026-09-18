@@ -1,4 +1,4 @@
-<img src="/CanopyLens.png" alt="Alt Text" width="300" />
+<img src="/CanopyLens.png" alt="Alt Text" />
 # CanopyLens — AI Aerial Tree Crown & Canopy Intelligence
 
 <div align="center">
